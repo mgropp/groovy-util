@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/mgropp/groovy-util.svg?branch=master)](https://travis-ci.org/mgropp/groovy-util)
+
 mgropp/groovy-util
 ==================
 
