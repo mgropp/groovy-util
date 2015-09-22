@@ -366,6 +366,11 @@ public class ProcessWatcher {
 	 * <tt>command</tt>.
 	 */
 	public static String[] withPty(String command) {
+		boolean windows = System.getProperty("os.name").toLowerCase().contains("win");
+		if (windows) {
+			return new String[]{ command };
+		}
+		
 		return new String[]{
 			"/usr/bin/setsid",
 			"/bin/bash", "-c",
