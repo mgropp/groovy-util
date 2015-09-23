@@ -13,11 +13,36 @@
 		</developer>
 	</developers>
 
+	<distributionManagement>
+		<repository>
+			<id>internal.repo</id>
+			<name>Temporary Staging Repository</name>
+			<url>file://${project.build.directory}/mvn-repo</url>
+		</repository>
+	</distributionManagement>
+
+
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 		<github.global.server>github</github.global.server>
 	</properties>
+
+	<repositories>
+		<repository>
+			<id>project.local</id>
+			<name>project</name>
+			<url>file:${project.basedir}/repository</url>
+		</repository>
+		<repository>
+			<id>mgropp-groovy-util</id>
+			<url>https://raw.github.com/mgropp/groovy-util/mvn-repo/</url>
+			<snapshots>
+				<enabled>true</enabled>
+				<updatePolicy>always</updatePolicy>
+			</snapshots>
+		</repository>
+	</repositories>
 
 	<build>
 		<plugins>
@@ -121,14 +146,23 @@
 				<artifactId>site-maven-plugin</artifactId>
 				<version>0.12</version>
 				<configuration>
-				<message>Creating site for ${project.version}</message>
+					<message>Maven artifacts for ${project.version}</message>
+					<noJekyll>true</noJekyll>
+					<outputDirectory>${project.build.directory}/mvn-repo</outputDirectory>
+					<branch>refs/heads/mvn-repo</branch>
+					<includes>
+						<include>**/*</include>
+					</includes>
+					<repositoryName>mgropp</repositoryName>
+					<repositoryOwner>groovy-util</repositoryOwner>
+					<server>github</server>
 				</configuration>
 				<executions>
 					<execution>
 						<goals>
 							<goal>site</goal>
 						</goals>
-						<phase>site</phase>
+						<phase>deploy</phase>
 					</execution>
 				</executions>
 			</plugin>
