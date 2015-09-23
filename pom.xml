@@ -153,8 +153,8 @@
 					<includes>
 						<include>**/*</include>
 					</includes>
-					<repositoryName>mgropp</repositoryName>
-					<repositoryOwner>groovy-util</repositoryOwner>
+					<repositoryName>groovy-util</repositoryName>
+					<repositoryOwner>mgropp</repositoryOwner>
 					<server>github</server>
 				</configuration>
 				<executions>
