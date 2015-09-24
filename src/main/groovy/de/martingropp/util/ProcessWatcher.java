@@ -23,6 +23,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Scanner;
@@ -43,7 +44,7 @@ public class ProcessWatcher {
 		void processTerminated(int exitCode);
 	}
 	
-	//private final String[] command;
+	private final List<String> command;
 	private final ProcessBuilder processBuilder;
 	public Process process = null;
 	private Writer writer = null;
@@ -164,7 +165,7 @@ public class ProcessWatcher {
 	}
 	
 	public ProcessWatcher(String... command) {
-		//this.command = command;
+		this.command = Arrays.asList(command);
 		processBuilder = new ProcessBuilder(command);
 	}
 	
@@ -428,6 +429,11 @@ public class ProcessWatcher {
 				command
 			)
 		};
+	}
+	
+	@Override
+	public String toString() {
+		return String.format("ProcessWatcher %d: %s", System.identityHashCode(this), command);
 	}
 	
 	public static void main(String[] args) throws IOException {
