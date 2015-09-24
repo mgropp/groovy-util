@@ -18,7 +18,6 @@
 package de.martingropp.util;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -98,13 +97,18 @@ public class ProcessWatcher {
 			OutputListener listener = new OutputListener() {
 				@Override
 				public void processOutputLine(String line, boolean stderr) {
+					List<Semaphore> semaphores = new ArrayList<>();
 					synchronized (triggerLines) {
-						for (TriggerLine triggerLine: triggerLines) {
+						for (TriggerLine triggerLine : triggerLines) {
 							if (triggerLine.pattern.matcher(line).matches()) {
 								triggerLine.matched = true;
-								triggerLine.semaphore.release();
+								semaphores.add(triggerLine.semaphore);
 							}
 						}
+					}
+					
+					for (Semaphore semaphore : semaphores) {
+						semaphore.release();
 					}
 				}
 			};
@@ -133,13 +137,17 @@ public class ProcessWatcher {
 					e.printStackTrace();
 				}
 				finally {
+					List<Semaphore> semaphores = new ArrayList<>();
 					synchronized (triggerLines) {
 						for (TriggerLine triggerLine: triggerLines) {
 							if (triggerLine.pattern.matcher(line).matches()) {
 								triggerLine.matched = false;
-								triggerLine.semaphore.release();
 							}
 						}
+					}
+					
+					for (Semaphore semaphore : semaphores) {
+						semaphore.release();
 					}
 					
 					int exitCode = process.exitValue();
@@ -161,10 +169,7 @@ public class ProcessWatcher {
 	}
 	
 	public void start() throws IOException {
-		processBuilder.redirectError(new File("/tmp/stderr-${System.identityHashCode(this)}.txt"));
-		processBuilder.redirectOutput(new File("/tmp/stdout-${System.identityHashCode(this)}.txt"));
 		process = processBuilder.start();
-
 		
 		stdoutWatcher = new WatcherThread(
 			new BufferedReader(new InputStreamReader(process.getInputStream())),
@@ -313,12 +318,13 @@ public class ProcessWatcher {
 			}
 			
 			triggerLines.add(triggerLine);
-			try {
-				semaphore.acquire();
-			}
-			finally {
-				triggerLines.remove(triggerLine);
-			}
+		}
+		
+		try {
+			semaphore.acquire();
+		}
+		finally {
+			triggerLines.remove(triggerLine);
 		}
 		
 		if (!triggerLine.matched) {
@@ -380,6 +386,10 @@ public class ProcessWatcher {
 	 */
 	public boolean isActive() {
 		// There just has to be a better way?!
+		if (process == null) {
+			return false;
+		}
+		
 		try {
 			process.exitValue();
 			return false;
