@@ -18,6 +18,7 @@
 package de.martingropp.util;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -55,24 +56,42 @@ public class ProcessWatcher {
 	private WatcherThread stdoutWatcher;
 	private WatcherThread stderrWatcher;
 	
-	private List<Pair<Pattern,Semaphore>> triggerLinesStdout = new LinkedList<>();
-	private List<Pair<Pattern,Semaphore>> triggerLinesStderr = new LinkedList<>();
+	private static class TriggerLine {
+		public Pattern pattern;
+		public Semaphore semaphore;
+		
+		// when the semaphore is released:
+		// matched is true if the pattern matched and false if
+		// the process exited.
+		// -> no synchronization necessary.
+		public boolean matched = false;
+		
+		public TriggerLine(Pattern pattern, Semaphore semaphore) {
+			this.pattern = pattern;
+			this.semaphore = semaphore;
+		}
+	}
+	
+	private List<TriggerLine> triggerLinesStdout = new LinkedList<>();
+	private List<TriggerLine> triggerLinesStderr = new LinkedList<>();
 	
 	private class WatcherThread extends Thread {
 		private final BufferedReader reader;
 		private final List<OutputListener> listeners;
 		private final boolean stderr; 
 		private final boolean callExitListeners;
+		private final List<TriggerLine> triggerLines;
 		
 		public WatcherThread(
 			BufferedReader reader,
 			List<OutputListener> listeners,
-			final List<Pair<Pattern,Semaphore>> triggerLines,
+			final List<TriggerLine> triggerLines,
 			boolean stderr,
 			boolean callExitListeners
 		) {
 			this.reader = reader;
 			this.listeners = listeners;
+			this.triggerLines = triggerLines;
 			this.stderr = stderr;
 			this.callExitListeners = callExitListeners;
 			
@@ -80,9 +99,10 @@ public class ProcessWatcher {
 				@Override
 				public void processOutputLine(String line, boolean stderr) {
 					synchronized (triggerLines) {
-						for (Pair<Pattern,Semaphore> patternAndSemaphore: triggerLines) {
-							if (patternAndSemaphore.first.matcher(line).matches()) {
-								patternAndSemaphore.second.release();
+						for (TriggerLine triggerLine: triggerLines) {
+							if (triggerLine.pattern.matcher(line).matches()) {
+								triggerLine.matched = true;
+								triggerLine.semaphore.release();
 							}
 						}
 					}
@@ -106,18 +126,27 @@ public class ProcessWatcher {
 					}
 				}
 				
-				if (callExitListeners) {
-					do {
-						try {
-							process.waitFor();
+				try {
+					process.waitFor();
+				}
+				catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				finally {
+					synchronized (triggerLines) {
+						for (TriggerLine triggerLine: triggerLines) {
+							if (triggerLine.pattern.matcher(line).matches()) {
+								triggerLine.matched = false;
+								triggerLine.semaphore.release();
+							}
 						}
-						catch (InterruptedException e) {
-							continue;
-						}
-					} while (false);
+					}
+					
 					int exitCode = process.exitValue();
-					for (ExitListener listener : exitListeners) {
-						listener.processTerminated(exitCode);
+					if (callExitListeners) {
+						for (ExitListener listener : exitListeners) {
+							listener.processTerminated(exitCode);
+						}
 					}
 				}
 			}
@@ -132,7 +161,10 @@ public class ProcessWatcher {
 	}
 	
 	public void start() throws IOException {
+		processBuilder.redirectError(new File("/tmp/stderr-${System.identityHashCode(this)}.txt"));
+		processBuilder.redirectOutput(new File("/tmp/stdout-${System.identityHashCode(this)}.txt"));
 		process = processBuilder.start();
+
 		
 		stdoutWatcher = new WatcherThread(
 			new BufferedReader(new InputStreamReader(process.getInputStream())),
@@ -175,7 +207,9 @@ public class ProcessWatcher {
 				} while (false);
 			}
 		};
+		
 		Runtime.getRuntime().addShutdownHook(shutdownHook);
+		
 		addExitListener(
 			new ExitListener() {
 				@Override
@@ -270,43 +304,44 @@ public class ProcessWatcher {
 		}
 	}
 	
-	private void waitForLine(Pattern pattern, List<Pair<Pattern,Semaphore>> triggerLines) {
+	private void waitForLine(Pattern pattern, List<TriggerLine> triggerLines) throws InterruptedException {
 		Semaphore semaphore = new Semaphore(0);
-		Pair<Pattern,Semaphore> patternAndSemaphore = new Pair<>(pattern, semaphore);
+		TriggerLine triggerLine = new TriggerLine(pattern, semaphore);
 		synchronized (triggerLines) {
-			triggerLines.add(patternAndSemaphore);
-		}
-		
-		do {
+			if (!isActive()) {
+				throw new InterruptedException("No match, process exited.");
+			}
+			
+			triggerLines.add(triggerLine);
 			try {
 				semaphore.acquire();
 			}
-			catch (InterruptedException e) {
-				continue;
+			finally {
+				triggerLines.remove(triggerLine);
 			}
-		} while (false);
+		}
 		
-		synchronized (triggerLines) {
-			triggerLines.remove(patternAndSemaphore);
+		if (!triggerLine.matched) {
+			throw new InterruptedException("No match, process exited.");
 		}
 	}
 	
-	public void waitForLineStdout(Pattern pattern) {
+	public void waitForLineStdout(Pattern pattern) throws InterruptedException {
 		waitForLine(pattern, triggerLinesStdout);
 	}
 	
-	public void waitForLineStderr(Pattern pattern) {
+	public void waitForLineStderr(Pattern pattern) throws InterruptedException {
 		waitForLine(pattern, triggerLinesStderr);
 	}
 	
-	public void waitForLineStdout(String line) {
+	public void waitForLineStdout(String line) throws InterruptedException {
 		waitForLine(
 			Pattern.compile(String.format("^%s$", Pattern.quote(line))),
 			triggerLinesStdout
 		);
 	}
 	
-	public void waitForLineStderr(String line) {
+	public void waitForLineStderr(String line) throws InterruptedException {
 		waitForLine(
 			Pattern.compile(String.format("^%s$", Pattern.quote(line))),
 			triggerLinesStderr
@@ -350,6 +385,9 @@ public class ProcessWatcher {
 			return false;
 		}
 		catch (IllegalStateException e) {
+			return true;
+		}
+		catch (IllegalThreadStateException e) {
 			return true;
 		}
 	}
